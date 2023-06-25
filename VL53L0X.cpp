@@ -34,9 +34,8 @@
 
 // Constructors ////////////////////////////////////////////////////////////////
 
-VL53L0X::VL53L0X()
-  : bus(&Wire)
-  , address(ADDRESS_DEFAULT)
+VL53L0X::VL53L0X(void)
+  : address(ADDRESS_DEFAULT)
   , io_timeout(0) // no timeout
   , did_timeout(false)
 {
@@ -58,8 +57,14 @@ void VL53L0X::setAddress(uint8_t new_addr)
 // enough unless a cover glass is added.
 // If io_2v8 (optional) is true or not given, the sensor is configured for 2V8
 // mode.
-bool VL53L0X::init(bool io_2v8)
+bool VL53L0X::init(int16_t GPIO0_pin, TwoWire &theWire, bool io_2v8)
 {
+    gpio_pin=GPIO0_pin;
+    if(gpio_pin >- 1)
+    {
+        pinMode(gpio_pin,INPUT);
+    }
+    wire = &theWire;
   // check model ID register (value specified in datasheet)
   if (readReg(IDENTIFICATION_MODEL_ID) != 0xEE) { return false; }
 
@@ -237,7 +242,7 @@ bool VL53L0X::init(bool io_2v8)
   // -- VL53L0X_SetGpioConfig() begin
 
   writeReg(SYSTEM_INTERRUPT_CONFIG_GPIO, 0x04);
-  writeReg(GPIO_HV_MUX_ACTIVE_HIGH, readReg(GPIO_HV_MUX_ACTIVE_HIGH) & ~0x10); // active low
+  writeReg(GPIO_HV_MUX_ACTIVE_HIGH, 0x01); // active low
   writeReg(SYSTEM_INTERRUPT_CLEAR, 0x01);
 
   // -- VL53L0X_SetGpioConfig() end
@@ -285,32 +290,32 @@ bool VL53L0X::init(bool io_2v8)
 // Write an 8-bit register
 void VL53L0X::writeReg(uint8_t reg, uint8_t value)
 {
-  bus->beginTransmission(address);
-  bus->write(reg);
-  bus->write(value);
-  last_status = bus->endTransmission();
+  wire->beginTransmission(address);
+  wire->write(reg);
+  wire->write(value);
+  last_status = wire->endTransmission();
 }
 
 // Write a 16-bit register
 void VL53L0X::writeReg16Bit(uint8_t reg, uint16_t value)
 {
-  bus->beginTransmission(address);
-  bus->write(reg);
-  bus->write((uint8_t)(value >> 8)); // value high byte
-  bus->write((uint8_t)(value)); // value low byte
-  last_status = bus->endTransmission();
+  wire->beginTransmission(address);
+  wire->write(reg);
+  wire->write((value >> 8) & 0xFF); // value high byte
+  wire->write( value       & 0xFF); // value low byte
+  last_status = wire->endTransmission();
 }
 
 // Write a 32-bit register
 void VL53L0X::writeReg32Bit(uint8_t reg, uint32_t value)
 {
-  bus->beginTransmission(address);
-  bus->write(reg);
-  bus->write((uint8_t)(value >> 24)); // value highest byte
-  bus->write((uint8_t)(value >> 16));
-  bus->write((uint8_t)(value >>  8));
-  bus->write((uint8_t)(value));       // value lowest byte
-  last_status = bus->endTransmission();
+  wire->beginTransmission(address);
+  wire->write(reg);
+  wire->write((value >> 24) & 0xFF); // value highest byte
+  wire->write((value >> 16) & 0xFF);
+  wire->write((value >>  8) & 0xFF);
+  wire->write( value        & 0xFF); // value lowest byte
+  last_status = wire->endTransmission();
 }
 
 // Read an 8-bit register
@@ -318,12 +323,12 @@ uint8_t VL53L0X::readReg(uint8_t reg)
 {
   uint8_t value;
 
-  bus->beginTransmission(address);
-  bus->write(reg);
-  last_status = bus->endTransmission();
+  wire->beginTransmission(address);
+  wire->write(reg);
+  last_status = wire->endTransmission();
 
-  bus->requestFrom(address, (uint8_t)1);
-  value = bus->read();
+  wire->requestFrom(address, (uint8_t)1);
+  value = wire->read();
 
   return value;
 }
@@ -333,13 +338,13 @@ uint16_t VL53L0X::readReg16Bit(uint8_t reg)
 {
   uint16_t value;
 
-  bus->beginTransmission(address);
-  bus->write(reg);
-  last_status = bus->endTransmission();
+  wire->beginTransmission(address);
+  wire->write(reg);
+  last_status = wire->endTransmission();
 
-  bus->requestFrom(address, (uint8_t)2);
-  value  = (uint16_t)bus->read() << 8; // value high byte
-  value |=           bus->read();      // value low byte
+  wire->requestFrom(address, (uint8_t)2);
+  value  = (uint16_t)wire->read() << 8; // value high byte
+  value |=           wire->read();      // value low byte
 
   return value;
 }
@@ -349,15 +354,15 @@ uint32_t VL53L0X::readReg32Bit(uint8_t reg)
 {
   uint32_t value;
 
-  bus->beginTransmission(address);
-  bus->write(reg);
-  last_status = bus->endTransmission();
+  wire->beginTransmission(address);
+  wire->write(reg);
+  last_status = wire->endTransmission();
 
-  bus->requestFrom(address, (uint8_t)4);
-  value  = (uint32_t)bus->read() << 24; // value highest byte
-  value |= (uint32_t)bus->read() << 16;
-  value |= (uint16_t)bus->read() <<  8;
-  value |=           bus->read();       // value lowest byte
+  wire->requestFrom(address, (uint8_t)4);
+  value  = (uint32_t)wire->read() << 24; // value highest byte
+  value |= (uint32_t)wire->read() << 16;
+  value |= (uint16_t)wire->read() <<  8;
+  value |=           wire->read();       // value lowest byte
 
   return value;
 }
@@ -366,30 +371,30 @@ uint32_t VL53L0X::readReg32Bit(uint8_t reg)
 // starting at the given register
 void VL53L0X::writeMulti(uint8_t reg, uint8_t const * src, uint8_t count)
 {
-  bus->beginTransmission(address);
-  bus->write(reg);
+  wire->beginTransmission(address);
+  wire->write(reg);
 
   while (count-- > 0)
   {
-    bus->write(*(src++));
+    wire->write(*(src++));
   }
 
-  last_status = bus->endTransmission();
+  last_status = wire->endTransmission();
 }
 
 // Read an arbitrary number of bytes from the sensor, starting at the given
 // register, into the given array
 void VL53L0X::readMulti(uint8_t reg, uint8_t * dst, uint8_t count)
 {
-  bus->beginTransmission(address);
-  bus->write(reg);
-  last_status = bus->endTransmission();
+  wire->beginTransmission(address);
+  wire->write(reg);
+  last_status = wire->endTransmission();
 
-  bus->requestFrom(address, count);
+  wire->requestFrom(address, count);
 
   while (count-- > 0)
   {
-    *(dst++) = bus->read();
+    *(dst++) = wire->read();
   }
 }
 
@@ -411,7 +416,7 @@ bool VL53L0X::setSignalRateLimit(float limit_Mcps)
 }
 
 // Get the return signal rate limit check value in MCPS
-float VL53L0X::getSignalRateLimit()
+float VL53L0X::getSignalRateLimit(void)
 {
   return (float)readReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT) / (1 << 7);
 }
@@ -435,6 +440,10 @@ bool VL53L0X::setMeasurementTimingBudget(uint32_t budget_us)
   uint16_t const DssOverhead        = 690;
   uint16_t const PreRangeOverhead   = 660;
   uint16_t const FinalRangeOverhead = 550;
+
+  uint32_t const MinTimingBudget = 20000;
+
+  if (budget_us < MinTimingBudget) { return false; }
 
   uint32_t used_budget_us = StartOverhead + EndOverhead;
 
@@ -508,7 +517,7 @@ bool VL53L0X::setMeasurementTimingBudget(uint32_t budget_us)
 // Get the measurement timing budget in microseconds
 // based on VL53L0X_get_measurement_timing_budget_micro_seconds()
 // in us
-uint32_t VL53L0X::getMeasurementTimingBudget()
+uint32_t VL53L0X::getMeasurementTimingBudget(void)
 {
   SequenceStepEnables enables;
   SequenceStepTimeouts timeouts;
@@ -752,6 +761,10 @@ uint8_t VL53L0X::getVcselPulsePeriod(vcselPeriodType type)
   else { return 255; }
 }
 
+
+
+
+
 // Start continuous ranging measurements. If period_ms (optional) is 0 or not
 // given, continuous back-to-back mode is used (the sensor takes measurements as
 // often as possible); otherwise, continuous timed mode is used, with the given
@@ -796,7 +809,7 @@ void VL53L0X::startContinuous(uint32_t period_ms)
 
 // Stop continuous measurements
 // based on VL53L0X_StopMeasurement()
-void VL53L0X::stopContinuous()
+void VL53L0X::stopContinuous(void)
 {
   writeReg(SYSRANGE_START, 0x01); // VL53L0X_REG_SYSRANGE_MODE_SINGLESHOT
 
@@ -810,10 +823,10 @@ void VL53L0X::stopContinuous()
 // Returns a range reading in millimeters when continuous mode is active
 // (readRangeSingleMillimeters() also calls this function after starting a
 // single-shot range measurement)
-uint16_t VL53L0X::readRangeContinuousMillimeters()
+uint16_t VL53L0X::readRangeContinuousMillimeters(void)
 {
   startTimeout();
-  while ((readReg(RESULT_INTERRUPT_STATUS) & 0x07) == 0)
+  while ((gpio_pin > -1) ? digitalRead(gpio_pin) == HIGH : (readReg(RESULT_INTERRUPT_STATUS) & 0x07) == 0)
   {
     if (checkTimeoutExpired())
     {
@@ -834,7 +847,7 @@ uint16_t VL53L0X::readRangeContinuousMillimeters()
 // Performs a single-shot range measurement and returns the reading in
 // millimeters
 // based on VL53L0X_PerformSingleRangingMeasurement()
-uint16_t VL53L0X::readRangeSingleMillimeters()
+uint16_t VL53L0X::readRangeSingleMillimeters(void)
 {
   writeReg(0x80, 0x01);
   writeReg(0xFF, 0x01);
@@ -858,6 +871,31 @@ uint16_t VL53L0X::readRangeSingleMillimeters()
   }
 
   return readRangeContinuousMillimeters();
+}
+
+//check to see if the sensor finished measuring
+//used when reading the sensor continuosly in a non-blocking manner
+bool VL53L0X::available(void)
+{
+    if(gpio_pin > -1)
+    {
+        if(digitalRead(gpio_pin) == LOW)
+            return true;
+        else
+            return false;
+    }
+    if((readReg(RESULT_INTERRUPT_STATUS) & 0x07) == 0)
+        return false;
+    else return true;
+}
+
+//read the sensor mesurment in millimeters after checking if the measurment is finished
+//used when reading the sensor continuosly in a non-blocking manner
+uint16_t VL53L0X::readRangeMillimeters(void)
+{
+    uint16_t range = readReg16Bit(RESULT_RANGE_STATUS + 10);
+    writeReg(SYSTEM_INTERRUPT_CLEAR, 0x01);
+    return range;
 }
 
 // Did a timeout occur in one of the read functions since the last call to
